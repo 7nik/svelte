@@ -417,6 +417,7 @@ export function analyze_component(root, source, options) {
 		uses_props: false,
 		uses_rest_props: false,
 		uses_slots: false,
+		uses_await: false,
 		uses_component_bindings: false,
 		uses_render_tags: false,
 		needs_context: false,

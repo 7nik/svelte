@@ -1,10 +1,11 @@
-/** @import { ArrowFunctionExpression, Expression, FunctionDeclaration, FunctionExpression, Identifier, Pattern, PrivateIdentifier, Statement } from 'estree' */
+/** @import { ArrowFunctionExpression, Expression, CallExpression, VariableDeclarator, FunctionDeclaration, FunctionExpression, Identifier, Pattern, PrivateIdentifier, Statement, VariableDeclaration, ModuleDeclaration, Directive, ArrayPattern } from 'estree' */
 /** @import { AST, Binding } from '#compiler' */
 /** @import { ClientTransformState, ComponentClientTransformState, ComponentContext } from './types.js' */
 /** @import { Analysis } from '../../types.js' */
 /** @import { Scope } from '../../scope.js' */
 import * as b from '../../../utils/builders.js';
 import { extract_identifiers, is_simple_expression } from '../../../utils/ast.js';
+import { get_rune } from '../../scope.js';
 import {
 	PROPS_IS_LAZY_INITIAL,
 	PROPS_IS_IMMUTABLE,
@@ -14,6 +15,7 @@ import {
 } from '../../../../constants.js';
 import { dev } from '../../../state.js';
 import { get_value } from './visitors/shared/declarations.js';
+import state from '../../../../../tests/runtime-legacy/samples/reactive-import-statement-module/state.js';
 
 /**
  * @param {Binding} binding
@@ -311,4 +313,64 @@ export function create_derived_block_argument(node, context) {
  */
 export function create_derived(state, arg) {
 	return b.call(state.analysis.runes ? '$.derived' : '$.derived_safe_equal', arg);
+}
+
+/**
+ * @param {VariableDeclaration} declaration
+ * @param {Scope} scope
+ */
+export function is_await_rune(declaration, scope) {
+	return (
+		declaration.declarations.length === 1 &&
+		declaration.declarations[0].init?.type === 'CallExpression' &&
+		get_rune(declaration.declarations[0].init, scope) === '$await'
+	);
+}
+
+/**
+ * @param {(ModuleDeclaration | Statement | Directive)[]} statements
+ * @param {ComponentContext} context
+ * @returns {[(ModuleDeclaration | Statement | Directive)[], null | (ModuleDeclaration | Statement | Directive)[]]}
+ */
+export function apply_async_await_wrappers(statements, context) {
+	/** @type {(ModuleDeclaration | Statement | Directive)[]} */
+	const new_statements = [];
+	let target_block_statements = new_statements;
+
+	for (const statement of statements) {
+		if (statement.type === 'VariableDeclaration' && is_await_rune(statement, context.state.scope)) {
+			const array_pattern = /** @type {ArrayPattern} */ (statement.declarations[0].id);
+			const await_expression = /** @type {CallExpression} */ (statement.declarations[0].init);
+			const value = /** @type {Expression} */ (context.visit(await_expression.arguments[0]));
+			const options =
+				await_expression.arguments.length === 2
+					? /** @type {Expression} */ (context.visit(await_expression.arguments[1]))
+					: undefined;
+			const args = array_pattern.elements.map(
+				(element) => /** @type {Pattern} */ (context.visit(/** @type {Pattern} */ (element)))
+			);
+			/** @type {Statement[]} */
+			const block_statements = [];
+
+			target_block_statements.push(
+				b.stmt(
+					b.call(
+						'$.await_effect',
+						b.thunk(value),
+						b.arrow(args, b.block(block_statements)),
+						options
+					)
+				)
+			);
+			target_block_statements = block_statements;
+			continue;
+		}
+		const visited = /** @type {Statement} */ (context.visit(statement));
+		target_block_statements.push(visited);
+	}
+
+	return [
+		new_statements,
+		new_statements === target_block_statements ? null : target_block_statements
+	];
 }

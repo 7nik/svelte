@@ -48,6 +48,7 @@ export interface ComponentAnalysis extends Analysis {
 	uses_rest_props: boolean;
 	/** Whether the component uses `$$slots` */
 	uses_slots: boolean;
+	uses_await: boolean;
 	uses_component_bindings: boolean;
 	uses_render_tags: boolean;
 	needs_context: boolean;

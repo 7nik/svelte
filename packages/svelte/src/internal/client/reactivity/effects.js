@@ -1,4 +1,4 @@
-/** @import { ComponentContext, ComponentContextLegacy, Derived, Effect, TemplateNode, TransitionManager } from '#client' */
+/** @import { ComponentContext, ComponentContextLegacy, Derived, Effect, Source, TemplateNode, TransitionManager, Value } from '#client' */
 import {
 	check_dirtiness,
 	component_context,
@@ -16,7 +16,10 @@ import {
 	set_is_flushing_effect,
 	set_signal_status,
 	untrack,
-	skip_reaction
+	skip_reaction,
+	handle_error,
+	set_active_effect,
+	set_component_context
 } from '../runtime.js';
 import {
 	DIRTY,
@@ -36,15 +39,22 @@ import {
 	HEAD_EFFECT,
 	MAYBE_DIRTY,
 	EFFECT_HAS_DERIVED,
-	BOUNDARY_EFFECT
+	BOUNDARY_EFFECT,
+	PREFETCH_AWAIT_EFFECT
 } from '../constants.js';
-import { set } from './sources.js';
+import { internal_set, set, source } from './sources.js';
 import * as e from '../errors.js';
 import { DEV } from 'esm-env';
 import { define_property } from '../../shared/utils.js';
 import { get_next_sibling } from '../dom/operations.js';
-import { derived, derived_safe_equal, destroy_derived } from './deriveds.js';
-import { legacy_mode_flag } from '../../flags/index.js';
+import { derived, destroy_derived, update_derived } from './deriveds.js';
+import { UNINITIALIZED } from '../../../constants.js';
+import {
+	ASYNC_DECREMENT,
+	ASYNC_INCREMENT,
+	trigger_async_boundary
+} from '../dom/blocks/boundary.js';
+import { flush_boundary_micro_tasks, queue_post_micro_task } from '../dom/task.js';
 
 /**
  * @param {'$effect' | '$effect.pre' | '$inspect'} rune
@@ -250,6 +260,103 @@ export function effect_root(fn) {
 	return () => {
 		destroy_effect(effect);
 	};
+}
+
+/**
+ * @param {Effect} boundary
+ * @param {() => void} fn
+ */
+export function with_effect(boundary, fn) {
+	var previous_effect = active_effect;
+	var previous_reaction = active_reaction;
+	var previous_ctx = component_context;
+
+	set_active_effect(boundary);
+	set_active_reaction(boundary);
+	set_component_context(boundary.ctx);
+
+	try {
+		fn();
+	} finally {
+		set_active_effect(previous_effect);
+		set_active_reaction(previous_reaction);
+		set_component_context(previous_ctx);
+	}
+}
+
+/**
+ * @template V
+ * @param {() => Promise<V>} asnyc_fn
+ * @param {(value: Source<V | typeof UNINITIALIZED>, promise: Source<undefined | Promise<V>>) => void} fn
+ * @param {{ prefetch?: boolean, onerror?: (error: unknown) => void }} [options]
+ */
+export function await_effect(asnyc_fn, fn, options) {
+	var current = /** @type {Effect} */ (active_effect);
+	/** @type {Source<V | typeof UNINITIALIZED>} */
+	var value = source(UNINITIALIZED);
+	/** @type {Promise<V> | typeof UNINITIALIZED} */
+	var previous_promise = UNINITIALIZED;
+	var derived_promise = derived(asnyc_fn);
+	var onerror = options?.onerror;
+
+	var pending = derived(() => {
+		var promise = get(derived_promise);
+		if (previous_promise === promise) {
+			return undefined;
+		}
+
+		// Wait a microtask to let the UI flush
+		return promise.then((r) => r);
+	});
+
+	block(
+		() => {
+			var promise = get(derived_promise);
+			get(value);
+			var block_effect = /** @type {Effect} */ (active_effect);
+
+			var should_suspend = previous_promise !== promise;
+			previous_promise = promise;
+
+			if (should_suspend) {
+				trigger_async_boundary(current, ASYNC_INCREMENT);
+
+				// If we're updating, then we need to flush the boundary microtasks
+				if (current.parent?.first !== null) {
+					flush_boundary_micro_tasks();
+				}
+
+				if (promise) {
+					promise.then((v) => {
+						if (previous_promise !== promise || (block_effect.f & DESTROYED) !== 0) {
+							return;
+						}
+						internal_set(value, v);
+
+						if (block_effect.first === null) {
+							with_effect(block_effect, () => branch(() => fn(value, pending)));
+							trigger_async_boundary(current, ASYNC_DECREMENT);
+						} else {
+							trigger_async_boundary(current, ASYNC_DECREMENT);
+						}
+					});
+
+					promise.catch((e) => {
+						if (onerror) {
+							try {
+								onerror(e);
+							} catch (e) {
+								handle_error(e, current, null, current.ctx);
+							}
+						} else {
+							handle_error(e, current, null, current.ctx);
+						}
+					});
+				}
+			}
+		},
+		options?.prefetch ? PREFETCH_AWAIT_EFFECT : undefined
+	);
 }
 
 /**
@@ -577,6 +684,29 @@ export function run_out_transitions(transitions, fn) {
 export function pause_children(effect, transitions, local, destroy = true) {
 	if ((effect.f & INERT) !== 0) return;
 	effect.f ^= INERT;
+
+	if (!destroy && (effect.f & PREFETCH_AWAIT_EFFECT) !== 0 && effect.deps !== null) {
+		var await_derived = /** @type {Derived} */ (effect.deps[0]);
+
+		if (await_derived.deps !== null) {
+			queue_post_micro_task(() => {
+				var deps = await_derived.deps;
+				if (deps === null || (effect.f & DESTROYED) !== 0) {
+					return;
+				}
+
+				var previously_flushing_effect = is_flushing_effect;
+				set_is_flushing_effect(true);
+				try {
+					if (check_dirtiness(await_derived)) {
+						update_derived(await_derived);
+					}
+				} finally {
+					set_is_flushing_effect(previously_flushing_effect);
+				}
+			});
+		}
+	}
 
 	if (effect.transitions !== null) {
 		for (const transition of effect.transitions) {

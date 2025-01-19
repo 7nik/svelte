@@ -6,18 +6,10 @@ import {
 	branch,
 	destroy_effect,
 	pause_effect,
-	resume_effect
+	resume_effect,
+	with_effect
 } from '../../reactivity/effects.js';
-import {
-	active_effect,
-	active_reaction,
-	component_context,
-	handle_error,
-	set_active_effect,
-	set_active_reaction,
-	set_component_context,
-	reset_is_throwing_error
-} from '../../runtime.js';
+import { active_effect, handle_error, reset_is_throwing_error } from '../../runtime.js';
 import {
 	hydrate_next,
 	hydrate_node,
@@ -29,30 +21,8 @@ import {
 import { get_next_sibling } from '../operations.js';
 import { queue_boundary_micro_task } from '../task.js';
 
-const ASYNC_INCREMENT = Symbol();
-const ASYNC_DECREMENT = Symbol();
-
-/**
- * @param {Effect} boundary
- * @param {() => void} fn
- */
-function with_boundary(boundary, fn) {
-	var previous_effect = active_effect;
-	var previous_reaction = active_reaction;
-	var previous_ctx = component_context;
-
-	set_active_effect(boundary);
-	set_active_reaction(boundary);
-	set_component_context(boundary.ctx);
-
-	try {
-		fn();
-	} finally {
-		set_active_effect(previous_effect);
-		set_active_reaction(previous_reaction);
-		set_component_context(previous_ctx);
-	}
-}
+export const ASYNC_INCREMENT = Symbol();
+export const ASYNC_DECREMENT = Symbol();
 
 /**
  * @param {TemplateNode} node
@@ -81,7 +51,7 @@ export function boundary(node, props, boundary_fn) {
 		var is_creating_fallback = false;
 
 		const render_snippet = (/** @type { () => void } */ snippet_fn) => {
-			with_boundary(boundary, () => {
+			with_effect(boundary, () => {
 				is_creating_fallback = true;
 
 				try {
@@ -181,7 +151,7 @@ export function boundary(node, props, boundary_fn) {
 			var reset = () => {
 				pause_effect(boundary_effect);
 
-				with_boundary(boundary, () => {
+				with_effect(boundary, () => {
 					is_creating_fallback = false;
 					boundary_effect = branch(() => boundary_fn(anchor));
 					reset_is_throwing_error();

@@ -1,12 +1,15 @@
-/** @import { Expression, Identifier, Statement, TemplateElement } from 'estree' */
+/** @import { ArrayPattern, CallExpression, Pattern, Expression, Identifier, Statement, TemplateElement, VariableDeclaration } from 'estree' */
 /** @import { AST, Namespace } from '#compiler' */
 /** @import { SourceLocation } from '#shared' */
 /** @import { ComponentClientTransformState, ComponentContext } from '../types' */
 import { TEMPLATE_FRAGMENT, TEMPLATE_USE_IMPORT_NODE } from '../../../../../constants.js';
 import { dev } from '../../../../state.js';
+import { extract_identifiers } from '../../../../utils/ast.js';
 import * as b from '../../../../utils/builders.js';
 import { sanitize_template_string } from '../../../../utils/sanitize_template_string.js';
 import { clean_nodes, infer_namespace } from '../../utils.js';
+import { is_await_rune } from '../utils.js';
+import { get_value } from './shared/declarations.js';
 import { process_children } from './shared/fragment.js';
 import { build_render_statement } from './shared/utils.js';
 
@@ -53,7 +56,7 @@ export function Fragment(node, context) {
 	const template_name = context.state.scope.root.unique('root'); // TODO infer name from parent
 
 	/** @type {Statement[]} */
-	const body = [];
+	let body = [];
 
 	/** @type {Statement | undefined} */
 	let close = undefined;
@@ -78,7 +81,22 @@ export function Fragment(node, context) {
 		}
 	};
 
-	for (const node of hoisted) {
+	/** @type {null | VariableDeclaration} */
+	let const_await_node = null;
+
+	for (let i = 0; i < hoisted.length; i += 1) {
+		const node = hoisted[i];
+		if (i === 0 && node.type === 'ConstTag' && is_await_rune(node.declaration, state.scope)) {
+			const array_pattern = /** @type {ArrayPattern} */ (node.declaration.declarations[0].id);
+			for (const id of extract_identifiers(array_pattern)) {
+				state.transform[id.name] = {
+					read: get_value
+				};
+			}
+
+			const_await_node = node.declaration;
+			continue;
+		}
 		context.visit(node, state);
 	}
 
@@ -193,6 +211,23 @@ export function Fragment(node, context) {
 		// could contain element insertions into the template, which the close statement needs to
 		// know of when constructing the list of current inner elements.
 		body.push(close);
+	}
+
+	if (const_await_node !== null) {
+		// TODO: this almost an extact duplication of the logic in transform/client/utils.js
+		const array_pattern = /** @type {ArrayPattern} */ (const_await_node.declarations[0].id);
+		const await_expression = /** @type {CallExpression} */ (const_await_node.declarations[0].init);
+		const value = /** @type {Expression} */ (context.visit(await_expression.arguments[0]));
+		const options =
+			await_expression.arguments.length === 2
+				? /** @type {Expression} */ (context.visit(await_expression.arguments[1]))
+				: undefined;
+		const args = array_pattern.elements.map(
+			(element) => /** @type {Pattern} */ (context.visit(/** @type {Pattern} */ (element)))
+		);
+		body = [
+			b.stmt(b.call('$.await_effect', b.thunk(value), b.arrow(args, b.block(body)), options))
+		];
 	}
 
 	return b.block(body);

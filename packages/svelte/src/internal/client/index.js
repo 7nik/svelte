@@ -107,7 +107,8 @@ export {
 	template_effect,
 	effect,
 	user_effect,
-	user_pre_effect
+	user_pre_effect,
+	await_effect
 } from './reactivity/effects.js';
 export { mutable_state, mutate, set, state } from './reactivity/sources.js';
 export {

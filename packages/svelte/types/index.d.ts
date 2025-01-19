@@ -3157,4 +3157,12 @@ declare namespace $host {
 	export const toString: never;
 }
 
+declare function $await<V, T extends never>(
+	value: Promise<V>,
+	options?: {
+		prefetch?: boolean;
+		onerror?: (error: unknown) => void;
+	}
+): [V, Promise<V>?];
+
 //# sourceMappingURL=index.d.ts.map
