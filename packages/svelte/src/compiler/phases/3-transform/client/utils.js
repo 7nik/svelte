@@ -4,7 +4,7 @@
 /** @import { Analysis } from '../../types.js' */
 /** @import { Scope } from '../../scope.js' */
 import * as b from '../../../utils/builders.js';
-import { extract_identifiers, is_simple_expression } from '../../../utils/ast.js';
+import { extract_identifiers, extract_paths, is_simple_expression } from '../../../utils/ast.js';
 import { get_rune } from '../../scope.js';
 import {
 	PROPS_IS_LAZY_INITIAL,
@@ -339,25 +339,39 @@ export function apply_async_await_wrappers(statements, context) {
 
 	for (const statement of statements) {
 		if (statement.type === 'VariableDeclaration' && is_await_rune(statement, context.state.scope)) {
-			const array_pattern = /** @type {ArrayPattern} */ (statement.declarations[0].id);
+			const pattern = statement.declarations[0].id;
+			const visited_pattern = /** @type {Pattern} */ (
+				context.visit(/** @type {Pattern} */ (pattern))
+			);
 			const await_expression = /** @type {CallExpression} */ (statement.declarations[0].init);
 			const value = /** @type {Expression} */ (context.visit(await_expression.arguments[0]));
 			const options =
 				await_expression.arguments.length === 2
 					? /** @type {Expression} */ (context.visit(await_expression.arguments[1]))
 					: undefined;
-			const args = array_pattern.elements.map(
-				(element) => /** @type {Pattern} */ (context.visit(/** @type {Pattern} */ (element)))
-			);
 			/** @type {Statement[]} */
 			const block_statements = [];
+
+			if (pattern.type !== 'Identifier') {
+				for (const binding of extract_paths(pattern)) {
+					block_statements.push(
+						b.var(
+							binding.node,
+							b.call('$.derived', b.thunk(binding.expression(b.call('$.get', b.id('$$d')))))
+						)
+					);
+				}
+			}
 
 			target_block_statements.push(
 				b.stmt(
 					b.call(
 						'$.await_effect',
 						b.thunk(value),
-						b.arrow(args, b.block(block_statements)),
+						b.arrow(
+							[pattern.type === 'Identifier' ? visited_pattern : b.id('$$d')],
+							b.block(block_statements)
+						),
 						options
 					)
 				)

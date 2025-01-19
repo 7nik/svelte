@@ -140,7 +140,6 @@ export function CallExpression(node, context) {
 
 			if (
 				declarator?.type !== 'VariableDeclarator' ||
-				declarator?.id.type !== 'ArrayPattern' ||
 				declaration?.type !== 'VariableDeclaration' ||
 				declaration?.declarations.length !== 1 ||
 				(parent?.type !== 'Program' && parent?.type !== 'ConstTag')

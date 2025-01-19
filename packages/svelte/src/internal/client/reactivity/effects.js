@@ -287,7 +287,7 @@ export function with_effect(boundary, fn) {
 /**
  * @template V
  * @param {() => Promise<V>} asnyc_fn
- * @param {(value: Source<V | typeof UNINITIALIZED>, promise: Source<undefined | Promise<V>>) => void} fn
+ * @param {(value: Source<V | typeof UNINITIALIZED>) => void} fn
  * @param {{ prefetch?: boolean, onerror?: (error: unknown) => void }} [options]
  */
 export function await_effect(asnyc_fn, fn, options) {
@@ -298,16 +298,6 @@ export function await_effect(asnyc_fn, fn, options) {
 	var previous_promise = UNINITIALIZED;
 	var derived_promise = derived(asnyc_fn);
 	var onerror = options?.onerror;
-
-	var pending = derived(() => {
-		var promise = get(derived_promise);
-		if (previous_promise === promise) {
-			return undefined;
-		}
-
-		// Wait a microtask to let the UI flush
-		return promise.then((r) => r);
-	});
 
 	block(
 		() => {
@@ -334,7 +324,7 @@ export function await_effect(asnyc_fn, fn, options) {
 						internal_set(value, v);
 
 						if (block_effect.first === null) {
-							with_effect(block_effect, () => branch(() => fn(value, pending)));
+							with_effect(block_effect, () => branch(() => fn(value)));
 							trigger_async_boundary(current, ASYNC_DECREMENT);
 						} else {
 							trigger_async_boundary(current, ASYNC_DECREMENT);

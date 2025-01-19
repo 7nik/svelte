@@ -4,7 +4,7 @@
 /** @import { ComponentClientTransformState, ComponentContext } from '../types' */
 import { TEMPLATE_FRAGMENT, TEMPLATE_USE_IMPORT_NODE } from '../../../../../constants.js';
 import { dev } from '../../../../state.js';
-import { extract_identifiers } from '../../../../utils/ast.js';
+import { extract_identifiers, extract_paths } from '../../../../utils/ast.js';
 import * as b from '../../../../utils/builders.js';
 import { sanitize_template_string } from '../../../../utils/sanitize_template_string.js';
 import { clean_nodes, infer_namespace } from '../../utils.js';
@@ -215,18 +215,43 @@ export function Fragment(node, context) {
 
 	if (const_await_node !== null) {
 		// TODO: this almost an extact duplication of the logic in transform/client/utils.js
-		const array_pattern = /** @type {ArrayPattern} */ (const_await_node.declarations[0].id);
+		const pattern = const_await_node.declarations[0].id;
+		const visited_pattern = /** @type {Pattern} */ (
+			context.visit(/** @type {Pattern} */ (const_await_node.declarations[0].id))
+		);
 		const await_expression = /** @type {CallExpression} */ (const_await_node.declarations[0].init);
 		const value = /** @type {Expression} */ (context.visit(await_expression.arguments[0]));
 		const options =
 			await_expression.arguments.length === 2
 				? /** @type {Expression} */ (context.visit(await_expression.arguments[1]))
 				: undefined;
-		const args = array_pattern.elements.map(
-			(element) => /** @type {Pattern} */ (context.visit(/** @type {Pattern} */ (element)))
-		);
+
+		const new_body = [];
+
+		if (pattern.type !== 'Identifier') {
+			for (const binding of extract_paths(pattern)) {
+				new_body.push(
+					b.var(
+						binding.node,
+						b.call('$.derived', b.thunk(binding.expression(b.call('$.get', b.id('$$d')))))
+					)
+				);
+			}
+		}
+		new_body.push(...body);
+
 		body = [
-			b.stmt(b.call('$.await_effect', b.thunk(value), b.arrow(args, b.block(body)), options))
+			b.stmt(
+				b.call(
+					'$.await_effect',
+					b.thunk(value),
+					b.arrow(
+						[pattern.type === 'Identifier' ? visited_pattern : b.id('$$d')],
+						b.block(new_body)
+					),
+					options
+				)
+			)
 		];
 	}
 
