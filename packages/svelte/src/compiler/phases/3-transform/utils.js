@@ -309,6 +309,7 @@ export function clean_nodes(
 		 */
 		is_standalone:
 			trimmed.length === 1 &&
+			parent.type !== 'SvelteBoundary' &&
 			((first.type === 'RenderTag' && !first.metadata.dynamic) ||
 				(first.type === 'Component' &&
 					!state.options.hmr &&
