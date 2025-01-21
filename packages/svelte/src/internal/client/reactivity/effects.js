@@ -19,7 +19,8 @@ import {
 	skip_reaction,
 	handle_error,
 	set_active_effect,
-	set_component_context
+	set_component_context,
+	untracking
 } from '../runtime.js';
 import {
 	DIRTY,
@@ -176,7 +177,7 @@ function create_effect(type, fn, sync, push = true) {
  * @returns {boolean}
  */
 export function effect_tracking() {
-	if (active_reaction === null) {
+	if (active_reaction === null || untracking) {
 		return false;
 	}
 
