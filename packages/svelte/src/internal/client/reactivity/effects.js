@@ -324,6 +324,10 @@ export function derived_await_effect(node, asnyc_fn, fn) {
 
 	block(() => {
 		var promise = get(derived_promise);
+		if (!(promise instanceof Promise)) {
+			promise = Promise.resolve(promise);
+		}
+
 		get(value);
 		var block_effect = /** @type {Effect} */ (active_effect);
 
