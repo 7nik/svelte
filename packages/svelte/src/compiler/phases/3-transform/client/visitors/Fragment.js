@@ -1,4 +1,4 @@
-/** @import { ArrayPattern, CallExpression, Pattern, Expression, Identifier, Statement, TemplateElement, VariableDeclaration, AwaitExpression } from 'estree' */
+/** @import { Pattern, Expression, Identifier, Statement, TemplateElement, VariableDeclaration, AwaitExpression } from 'estree' */
 /** @import { AST, Namespace } from '#compiler' */
 /** @import { SourceLocation } from '#shared' */
 /** @import { ComponentClientTransformState, ComponentContext } from '../types' */
@@ -220,7 +220,6 @@ export function Fragment(node, context) {
 		);
 		const await_expression = /** @type {AwaitExpression} */ (const_await_node.declarations[0].init);
 		const value = /** @type {Expression} */ (context.visit(await_expression.argument));
-
 		const new_body = [];
 
 		if (pattern.type !== 'Identifier') {

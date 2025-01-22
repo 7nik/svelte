@@ -16,6 +16,7 @@ import check_graph_for_cycles from '../2-analyze/utils/check_graph_for_cycles.js
 import is_reference from 'is-reference';
 import { set_scope } from '../scope.js';
 import { dev } from '../../state.js';
+import { is_top_level_await } from './client/utils.js';
 
 /**
  * @param {Node} node
@@ -169,8 +170,11 @@ export function clean_nodes(
 			continue;
 		}
 
+		if (node.type === 'ConstTag' && is_top_level_await(node.declaration)) {
+			continue;
+		}
+
 		if (
-			node.type === 'ConstTag' ||
 			node.type === 'DebugTag' ||
 			node.type === 'SvelteBody' ||
 			node.type === 'SvelteWindow' ||

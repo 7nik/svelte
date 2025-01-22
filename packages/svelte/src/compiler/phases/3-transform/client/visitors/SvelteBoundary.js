@@ -2,6 +2,7 @@
 /** @import { AST } from '#compiler' */
 /** @import { ComponentContext } from '../types' */
 import * as b from '../../../../utils/builders.js';
+import { is_top_level_await } from '../utils.js';
 
 /**
  * @param {AST.SvelteBoundary} node
@@ -52,7 +53,7 @@ export function SvelteBoundary(node, context) {
 				props.properties.push(b.prop('init', child.expression, child.expression));
 				external_statements.push(...init);
 			});
-		} else if (child.type === 'ConstTag') {
+		} else if (child.type === 'ConstTag' && !is_top_level_await(child.declaration)) {
 			/** @type {Statement[]} */
 			const init = [];
 			context.visit(child, { ...context.state, init });
