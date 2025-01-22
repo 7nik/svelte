@@ -37,6 +37,7 @@ export function SvelteBoundary(node, context) {
 	const external_statements = [];
 
 	const snippets_visits = [];
+	let await_node = null;
 
 	// Capture the `failed` implicit snippet prop
 	for (const child of node.fragment.nodes) {
@@ -53,11 +54,16 @@ export function SvelteBoundary(node, context) {
 				props.properties.push(b.prop('init', child.expression, child.expression));
 				external_statements.push(...init);
 			});
-		} else if (child.type === 'ConstTag' && !is_top_level_await(child.declaration)) {
-			/** @type {Statement[]} */
-			const init = [];
-			context.visit(child, { ...context.state, init });
-			external_statements.push(...init);
+		} else if (child.type === 'ConstTag') {
+			if (is_top_level_await(child.declaration)) {
+				await_node = child;
+				continue;
+			} else {
+				/** @type {Statement[]} */
+				const init = [];
+				context.visit(child, { ...context.state, init });
+				external_statements.push(...init);
+			}
 		} else {
 			nodes.push(child);
 		}
@@ -65,13 +71,23 @@ export function SvelteBoundary(node, context) {
 
 	snippets_visits.forEach((visit) => visit());
 
-	const block = /** @type {BlockStatement} */ (context.visit({ ...node.fragment, nodes }));
+	let block;
+
+	if (await_node !== null) {
+		block = /** @type {BlockStatement} */ (
+			context.visit({
+				...node.fragment,
+				nodes: [await_node, ...nodes]
+			})
+		);
+	} else {
+		block = /** @type {BlockStatement} */ (context.visit({ ...node.fragment, nodes }));
+	}
 
 	const boundary = b.stmt(
 		b.call('$.boundary', context.state.node, props, b.arrow([b.id('$$anchor')], block))
 	);
 
-	context.state.template.push('<!>');
 	context.state.init.push(
 		external_statements.length > 0 ? b.block([...external_statements, boundary]) : boundary
 	);

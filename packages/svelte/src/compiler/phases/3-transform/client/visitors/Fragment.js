@@ -222,6 +222,8 @@ export function Fragment(node, context) {
 		const value = /** @type {Expression} */ (context.visit(await_expression.argument));
 		const new_body = [];
 
+		state.template.push('<!>');
+
 		if (pattern.type !== 'Identifier') {
 			for (const binding of extract_paths(pattern)) {
 				new_body.push(
@@ -234,17 +236,24 @@ export function Fragment(node, context) {
 		}
 		new_body.push(...body);
 
+		const id = b.id(context.state.scope.generate('fragment'));
+		const comment = b.id(context.state.scope.generate('comment'));
+
 		body = [
+			b.var(id, b.call('$.comment')),
+			b.var(comment, b.call('$.first_child', id)),
 			b.stmt(
 				b.call(
 					'$.derived_await_effect',
+					comment,
 					b.thunk(value),
 					b.arrow(
-						[pattern.type === 'Identifier' ? visited_pattern : b.id('$$d')],
+						[b.id('$$anchor'), pattern.type === 'Identifier' ? visited_pattern : b.id('$$d')],
 						b.block(new_body)
 					)
 				)
-			)
+			),
+			b.stmt(b.call('$.append', b.id('$$anchor'), id))
 		];
 	}
 

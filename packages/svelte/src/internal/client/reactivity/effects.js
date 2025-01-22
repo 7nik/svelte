@@ -307,10 +307,12 @@ export function await_effect(promise, fn) {
 
 /**
  * @template V
+ * @param {TemplateNode} node
  * @param {() => Promise<V>} asnyc_fn
- * @param {(value: Source<V | typeof UNINITIALIZED>) => void} fn
+ * @param {(anchor: TemplateNode, value: Source<V | typeof UNINITIALIZED>) => void} fn
  */
-export function derived_await_effect(asnyc_fn, fn) {
+export function derived_await_effect(node, asnyc_fn, fn) {
+	var anchor = node;
 	var current = /** @type {Effect} */ (active_effect);
 	/** @type {Source<V | typeof UNINITIALIZED>} */
 	var value = source(UNINITIALIZED);
@@ -344,7 +346,7 @@ export function derived_await_effect(asnyc_fn, fn) {
 					internal_set(value, v);
 
 					if (block_effect.first === null) {
-						with_effect(block_effect, () => branch(() => fn(value)));
+						with_effect(block_effect, () => branch(() => fn(anchor, value)));
 						trigger_async_boundary(current, ASYNC_DECREMENT);
 					} else {
 						trigger_async_boundary(current, ASYNC_DECREMENT);

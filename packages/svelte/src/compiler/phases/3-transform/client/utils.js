@@ -372,9 +372,10 @@ export function apply_async_await_wrappers(statements, context) {
 						rune === '$derived' || rune === '$derived.by'
 							? '$.derived_await_effect'
 							: '$.await_effect',
+						b.id('$$anchor'),
 						rune === '$derived' ? b.thunk(value) : value,
 						b.arrow(
-							[pattern.type === 'Identifier' ? visited_pattern : b.id('$$d')],
+							[b.id('$$anchor'), pattern.type === 'Identifier' ? visited_pattern : b.id('$$d')],
 							b.block(block_statements)
 						)
 					)

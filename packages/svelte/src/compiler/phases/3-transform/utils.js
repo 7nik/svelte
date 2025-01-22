@@ -170,11 +170,8 @@ export function clean_nodes(
 			continue;
 		}
 
-		if (node.type === 'ConstTag' && is_top_level_await(node.declaration)) {
-			continue;
-		}
-
 		if (
+			node.type === 'ConstTag' ||
 			node.type === 'DebugTag' ||
 			node.type === 'SvelteBody' ||
 			node.type === 'SvelteWindow' ||
@@ -313,7 +310,6 @@ export function clean_nodes(
 		 */
 		is_standalone:
 			trimmed.length === 1 &&
-			parent.type !== 'SvelteBoundary' &&
 			((first.type === 'RenderTag' && !first.metadata.dynamic) ||
 				(first.type === 'Component' &&
 					!state.options.hmr &&
