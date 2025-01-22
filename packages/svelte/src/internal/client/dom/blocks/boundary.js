@@ -210,4 +210,5 @@ export function trigger_async_boundary(effect, trigger) {
 		}
 		current = current.parent;
 	}
+	throw new Error('TODO: no async <svelte:boundary> found');
 }
