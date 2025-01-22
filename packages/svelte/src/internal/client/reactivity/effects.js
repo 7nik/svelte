@@ -41,7 +41,7 @@ import {
 	MAYBE_DIRTY,
 	EFFECT_HAS_DERIVED,
 	BOUNDARY_EFFECT,
-	PREFETCH_AWAIT_EFFECT
+	AWAITED
 } from '../constants.js';
 import { internal_set, set, source } from './sources.js';
 import * as e from '../errors.js';
@@ -287,67 +287,76 @@ export function with_effect(boundary, fn) {
 
 /**
  * @template V
- * @param {() => Promise<V>} asnyc_fn
+ * @param {Promise<V>} promise
  * @param {(value: Source<V | typeof UNINITIALIZED>) => void} fn
- * @param {{ prefetch?: boolean, onerror?: (error: unknown) => void }} [options]
  */
-export function await_effect(asnyc_fn, fn, options) {
+export function await_effect(promise, fn) {
 	var current = /** @type {Effect} */ (active_effect);
 	/** @type {Source<V | typeof UNINITIALIZED>} */
 	var value = source(UNINITIALIZED);
+	trigger_async_boundary(current, ASYNC_INCREMENT);
+	promise.then((v) => {
+		if ((current.f & DESTROYED) !== 0) {
+			return;
+		}
+		internal_set(value, v);
+		with_effect(current, () => branch(() => fn(value)));
+		trigger_async_boundary(current, ASYNC_DECREMENT);
+	});
+}
+
+/**
+ * @template V
+ * @param {() => Promise<V>} asnyc_fn
+ * @param {(value: Source<V | typeof UNINITIALIZED>) => void} fn
+ */
+export function derived_await_effect(asnyc_fn, fn) {
+	var current = /** @type {Effect} */ (active_effect);
+	/** @type {Source<V | typeof UNINITIALIZED>} */
+	var value = source(UNINITIALIZED);
+	// Make the souce as a special AWAITED type for prefetching
+	value.f ^= AWAITED;
 	/** @type {Promise<V> | typeof UNINITIALIZED} */
 	var previous_promise = UNINITIALIZED;
 	var derived_promise = derived(asnyc_fn);
-	var onerror = options?.onerror;
 
-	block(
-		() => {
-			var promise = get(derived_promise);
-			get(value);
-			var block_effect = /** @type {Effect} */ (active_effect);
+	block(() => {
+		var promise = get(derived_promise);
+		get(value);
+		var block_effect = /** @type {Effect} */ (active_effect);
 
-			var should_suspend = previous_promise !== promise;
-			previous_promise = promise;
+		var should_suspend = previous_promise !== promise;
+		previous_promise = promise;
 
-			if (should_suspend) {
-				trigger_async_boundary(current, ASYNC_INCREMENT);
+		if (should_suspend) {
+			trigger_async_boundary(current, ASYNC_INCREMENT);
 
-				// If we're updating, then we need to flush the boundary microtasks
-				if (current.parent?.first !== null) {
-					flush_boundary_micro_tasks();
-				}
-
-				if (promise) {
-					promise.then((v) => {
-						if (previous_promise !== promise || (block_effect.f & DESTROYED) !== 0) {
-							return;
-						}
-						internal_set(value, v);
-
-						if (block_effect.first === null) {
-							with_effect(block_effect, () => branch(() => fn(value)));
-							trigger_async_boundary(current, ASYNC_DECREMENT);
-						} else {
-							trigger_async_boundary(current, ASYNC_DECREMENT);
-						}
-					});
-
-					promise.catch((e) => {
-						if (onerror) {
-							try {
-								onerror(e);
-							} catch (e) {
-								handle_error(e, current, null, current.ctx);
-							}
-						} else {
-							handle_error(e, current, null, current.ctx);
-						}
-					});
-				}
+			// If we're updating, then we need to flush the boundary microtasks
+			if (current.parent?.first !== null) {
+				flush_boundary_micro_tasks();
 			}
-		},
-		options?.prefetch ? PREFETCH_AWAIT_EFFECT : undefined
-	);
+
+			if (promise) {
+				promise.then((v) => {
+					if (previous_promise !== promise || (block_effect.f & DESTROYED) !== 0) {
+						return;
+					}
+					internal_set(value, v);
+
+					if (block_effect.first === null) {
+						with_effect(block_effect, () => branch(() => fn(value)));
+						trigger_async_boundary(current, ASYNC_DECREMENT);
+					} else {
+						trigger_async_boundary(current, ASYNC_DECREMENT);
+					}
+				});
+
+				promise.catch((e) => {
+					handle_error(e, current, null, current.ctx);
+				});
+			}
+		}
+	}, AWAITED);
 }
 
 /**
@@ -667,6 +676,26 @@ export function run_out_transitions(transitions, fn) {
 }
 
 /**
+ * @param {Value[]} deps
+ */
+function contains_awaited_dep(deps) {
+	for (let i = 0; i < deps.length; i += 1) {
+		var dep = deps[i];
+		var flags = dep.f;
+
+		if (
+			(flags & AWAITED) !== 0 ||
+			((flags & DERIVED) !== 0 &&
+				/** @type {Derived} */ (dep).deps !== null &&
+				contains_awaited_dep(/** @type {Derived} */ (dep).deps))
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
  * @param {Effect} effect
  * @param {TransitionManager[]} transitions
  * @param {boolean} local
@@ -676,13 +705,14 @@ export function pause_children(effect, transitions, local, destroy = true) {
 	if ((effect.f & INERT) !== 0) return;
 	effect.f ^= INERT;
 
-	if (!destroy && (effect.f & PREFETCH_AWAIT_EFFECT) !== 0 && effect.deps !== null) {
+	// Attempt to prefetch if we don't have any transitive AWAITED source dependencies
+	if (!destroy && (effect.f & AWAITED) !== 0 && effect.deps !== null) {
 		var await_derived = /** @type {Derived} */ (effect.deps[0]);
 
-		if (await_derived.deps !== null) {
+		if ((await_derived.f & CLEAN) === 0 && await_derived.deps !== null) {
 			queue_post_micro_task(() => {
 				var deps = await_derived.deps;
-				if (deps === null || (effect.f & DESTROYED) !== 0) {
+				if (deps === null || (effect.f & DESTROYED) !== 0 || contains_awaited_dep(deps)) {
 					return;
 				}
 

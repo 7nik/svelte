@@ -1,4 +1,4 @@
-/** @import { ArrayPattern, CallExpression, Pattern, Expression, Identifier, Statement, TemplateElement, VariableDeclaration } from 'estree' */
+/** @import { ArrayPattern, CallExpression, Pattern, Expression, Identifier, Statement, TemplateElement, VariableDeclaration, AwaitExpression } from 'estree' */
 /** @import { AST, Namespace } from '#compiler' */
 /** @import { SourceLocation } from '#shared' */
 /** @import { ComponentClientTransformState, ComponentContext } from '../types' */
@@ -8,7 +8,7 @@ import { extract_identifiers, extract_paths } from '../../../../utils/ast.js';
 import * as b from '../../../../utils/builders.js';
 import { sanitize_template_string } from '../../../../utils/sanitize_template_string.js';
 import { clean_nodes, infer_namespace } from '../../utils.js';
-import { is_await_rune } from '../utils.js';
+import { is_top_level_await } from '../utils.js';
 import { get_value } from './shared/declarations.js';
 import { process_children } from './shared/fragment.js';
 import { build_render_statement } from './shared/utils.js';
@@ -86,9 +86,9 @@ export function Fragment(node, context) {
 
 	for (let i = 0; i < hoisted.length; i += 1) {
 		const node = hoisted[i];
-		if (i === 0 && node.type === 'ConstTag' && is_await_rune(node.declaration, state.scope)) {
-			const array_pattern = /** @type {ArrayPattern} */ (node.declaration.declarations[0].id);
-			for (const id of extract_identifiers(array_pattern)) {
+		if (i === 0 && node.type === 'ConstTag' && is_top_level_await(node.declaration)) {
+			const pattern = /** @type {Pattern} */ (node.declaration.declarations[0].id);
+			for (const id of extract_identifiers(pattern)) {
 				state.transform[id.name] = {
 					read: get_value
 				};
@@ -214,17 +214,12 @@ export function Fragment(node, context) {
 	}
 
 	if (const_await_node !== null) {
-		// TODO: this almost an extact duplication of the logic in transform/client/utils.js
 		const pattern = const_await_node.declarations[0].id;
 		const visited_pattern = /** @type {Pattern} */ (
 			context.visit(/** @type {Pattern} */ (const_await_node.declarations[0].id))
 		);
-		const await_expression = /** @type {CallExpression} */ (const_await_node.declarations[0].init);
-		const value = /** @type {Expression} */ (context.visit(await_expression.arguments[0]));
-		const options =
-			await_expression.arguments.length === 2
-				? /** @type {Expression} */ (context.visit(await_expression.arguments[1]))
-				: undefined;
+		const await_expression = /** @type {AwaitExpression} */ (const_await_node.declarations[0].init);
+		const value = /** @type {Expression} */ (context.visit(await_expression.argument));
 
 		const new_body = [];
 
@@ -243,13 +238,12 @@ export function Fragment(node, context) {
 		body = [
 			b.stmt(
 				b.call(
-					'$.await_effect',
+					'$.derived_await_effect',
 					b.thunk(value),
 					b.arrow(
 						[pattern.type === 'Identifier' ? visited_pattern : b.id('$$d')],
 						b.block(new_body)
-					),
-					options
+					)
 				)
 			)
 		];

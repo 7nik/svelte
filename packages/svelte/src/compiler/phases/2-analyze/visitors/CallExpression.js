@@ -82,7 +82,27 @@ export function CallExpression(node, context) {
 				parent.type !== 'VariableDeclarator' &&
 				!(parent.type === 'PropertyDefinition' && !parent.static && !parent.computed)
 			) {
-				e.state_invalid_placement(node, rune);
+				if (rune === '$state.raw' || rune === '$state') {
+					e.state_invalid_placement(node, rune);
+				}
+
+				const parent = context.path.at(-1);
+				const declarator = context.path.at(-2);
+				const declaration = context.path.at(-3);
+				const top_level = context.path.at(-4);
+
+				if (
+					context.state.ast_type !== 'instance' ||
+					context.state.function_depth !== 1 ||
+					!context.state.analysis.runes ||
+					parent?.type !== 'AwaitExpression' ||
+					declarator?.type !== 'VariableDeclarator' ||
+					declaration?.type !== 'VariableDeclaration' ||
+					declaration.declarations.length !== 1 ||
+					top_level?.type !== 'Program'
+				) {
+					e.state_invalid_placement(node, rune);
+				}
 			}
 
 			if ((rune === '$derived' || rune === '$derived.by') && node.arguments.length !== 1) {
@@ -122,54 +142,6 @@ export function CallExpression(node, context) {
 			}
 
 			break;
-
-		case '$await': {
-			if (node.arguments.length !== 1 && node.arguments.length !== 2) {
-				e.rune_invalid_arguments_length(node, rune, 'one or two arguments');
-			}
-
-			const declarator = context.path.at(-1);
-			const declaration = context.path.at(-2);
-			const parent = context.path.at(-3);
-
-			if (context.state.ast_type !== 'instance' && context.state.ast_type !== 'template') {
-				throw new Error(
-					'TODO: $await can only be used at the top-level of a component or as a const tag'
-				);
-			}
-
-			if (
-				declarator?.type !== 'VariableDeclarator' ||
-				declaration?.type !== 'VariableDeclaration' ||
-				declaration?.declarations.length !== 1 ||
-				(parent?.type !== 'Program' && parent?.type !== 'ConstTag')
-			) {
-				throw new Error('TODO: invalid usage of $await in component');
-			}
-
-			if (parent?.type === 'ConstTag') {
-				const fragment = /** @type {AST.Fragment} */ (context.path.at(-4));
-				const nodes = fragment.nodes.filter(
-					(node) => node.type !== 'Text' || node.data.trim() !== ''
-				);
-				if (nodes[0] !== parent) {
-					throw new Error(
-						'TODO: $await can only be used as a {@const} tag if its the first and only child of a fragment'
-					);
-				}
-			}
-
-			for (const id of extract_identifiers(declarator.id)) {
-				const binding = context.state.scope.get(id.name);
-				if (binding !== null) {
-					binding.kind = 'derived';
-				}
-			}
-
-			context.state.analysis.uses_await = true;
-
-			break;
-		}
 
 		case '$inspect':
 			if (node.arguments.length < 1) {
@@ -255,7 +227,7 @@ export function CallExpression(node, context) {
 	}
 
 	// `$inspect(foo)` or `$derived(foo) should not trigger the `static-state-reference` warning
-	if (rune === '$inspect' || rune === '$derived' || rune === '$await') {
+	if (rune === '$inspect' || rune === '$derived') {
 		context.next({ ...context.state, function_depth: context.state.function_depth + 1 });
 	} else {
 		context.next();

@@ -45,6 +45,7 @@ import { LabeledStatement } from './visitors/LabeledStatement.js';
 import { LetDirective } from './visitors/LetDirective.js';
 import { MemberExpression } from './visitors/MemberExpression.js';
 import { NewExpression } from './visitors/NewExpression.js';
+import { AwaitExpression } from './visitors/AwaitExpression.js';
 import { OnDirective } from './visitors/OnDirective.js';
 import { RegularElement } from './visitors/RegularElement.js';
 import { RenderTag } from './visitors/RenderTag.js';
@@ -158,6 +159,7 @@ const visitors = {
 	LetDirective,
 	MemberExpression,
 	NewExpression,
+	AwaitExpression,
 	OnDirective,
 	RegularElement,
 	RenderTag,

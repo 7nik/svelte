@@ -30,7 +30,8 @@ import {
 	UNOWNED,
 	MAYBE_DIRTY,
 	BLOCK_EFFECT,
-	ROOT_EFFECT
+	ROOT_EFFECT,
+	AWAITED
 } from '../constants.js';
 import * as e from '../errors.js';
 import { legacy_mode_flag, tracing_mode_flag } from '../../flags/index.js';
@@ -254,7 +255,13 @@ function mark_reactions(signal, status) {
 			continue;
 		}
 
-		set_signal_status(reaction, status);
+		// Always mark derived await effects as dirty, so we don't propagate their
+		// dependencies and re-execute deriveds that might be unstable
+		if ((flags & AWAITED) !== 0) {
+			set_signal_status(reaction, DIRTY);
+		} else {
+			set_signal_status(reaction, status);
+		}
 
 		// If the signal a) was previously clean or b) is an unowned derived, then mark it
 		if ((flags & (CLEAN | UNOWNED)) !== 0) {

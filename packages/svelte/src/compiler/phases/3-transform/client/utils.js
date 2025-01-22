@@ -1,4 +1,4 @@
-/** @import { ArrowFunctionExpression, Expression, CallExpression, VariableDeclarator, FunctionDeclaration, FunctionExpression, Identifier, Pattern, PrivateIdentifier, Statement, VariableDeclaration, ModuleDeclaration, Directive, ArrayPattern } from 'estree' */
+/** @import { ArrowFunctionExpression, Expression, CallExpression, VariableDeclarator, FunctionDeclaration, FunctionExpression, Identifier, Pattern, PrivateIdentifier, Statement, VariableDeclaration, ModuleDeclaration, Directive, ArrayPattern, AwaitExpression } from 'estree' */
 /** @import { AST, Binding } from '#compiler' */
 /** @import { ClientTransformState, ComponentClientTransformState, ComponentContext } from './types.js' */
 /** @import { Analysis } from '../../types.js' */
@@ -317,13 +317,11 @@ export function create_derived(state, arg) {
 
 /**
  * @param {VariableDeclaration} declaration
- * @param {Scope} scope
  */
-export function is_await_rune(declaration, scope) {
+export function is_top_level_await(declaration) {
 	return (
 		declaration.declarations.length === 1 &&
-		declaration.declarations[0].init?.type === 'CallExpression' &&
-		get_rune(declaration.declarations[0].init, scope) === '$await'
+		declaration.declarations[0].init?.type === 'AwaitExpression'
 	);
 }
 
@@ -338,17 +336,22 @@ export function apply_async_await_wrappers(statements, context) {
 	let target_block_statements = new_statements;
 
 	for (const statement of statements) {
-		if (statement.type === 'VariableDeclaration' && is_await_rune(statement, context.state.scope)) {
+		if (statement.type === 'VariableDeclaration' && is_top_level_await(statement)) {
 			const pattern = statement.declarations[0].id;
 			const visited_pattern = /** @type {Pattern} */ (
 				context.visit(/** @type {Pattern} */ (pattern))
 			);
-			const await_expression = /** @type {CallExpression} */ (statement.declarations[0].init);
-			const value = /** @type {Expression} */ (context.visit(await_expression.arguments[0]));
-			const options =
-				await_expression.arguments.length === 2
-					? /** @type {Expression} */ (context.visit(await_expression.arguments[1]))
-					: undefined;
+			const await_expression = /** @type {AwaitExpression} */ (statement.declarations[0].init);
+			const rune =
+				await_expression.argument.type === 'CallExpression'
+					? get_rune(await_expression.argument, context.state.scope)
+					: null;
+			const value =
+				rune === '$derived' || rune === '$derived.by'
+					? /** @type {Expression} */ (
+							context.visit(/** @type {CallExpression} */ (await_expression.argument).arguments[0])
+						)
+					: /** @type {Expression} */ (context.visit(await_expression.argument));
 			/** @type {Statement[]} */
 			const block_statements = [];
 
@@ -366,13 +369,14 @@ export function apply_async_await_wrappers(statements, context) {
 			target_block_statements.push(
 				b.stmt(
 					b.call(
-						'$.await_effect',
-						b.thunk(value),
+						rune === '$derived' || rune === '$derived.by'
+							? '$.derived_await_effect'
+							: '$.await_effect',
+						rune === '$derived' ? b.thunk(value) : value,
 						b.arrow(
 							[pattern.type === 'Identifier' ? visited_pattern : b.id('$$d')],
 							b.block(block_statements)
-						),
-						options
+						)
 					)
 				)
 			);
