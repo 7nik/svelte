@@ -88,6 +88,7 @@ export function SvelteBoundary(node, context) {
 		b.call('$.boundary', context.state.node, props, b.arrow([b.id('$$anchor')], block))
 	);
 
+	context.state.template.push('<!>');
 	context.state.init.push(
 		external_statements.length > 0 ? b.block([...external_statements, boundary]) : boundary
 	);
